@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../chat/chat_screen.dart';
-import '../terminal/terminal_placeholder.dart';
+import '../terminal/terminal_screen.dart';
+import '../kanban/kanban_screen.dart';
+import '../subagents/subagents_screen.dart';
 import '../hud/hud_screen.dart';
 import '../settings/settings_screen.dart';
 import '../../shared/widgets/server_status_badge.dart';
@@ -30,7 +32,9 @@ class HomeScreen extends ConsumerWidget {
         index: currentIndex,
         children: const [
           ChatScreen(),
-          TerminalPlaceholder(),
+          KanbanScreen(),
+          SubagentsScreen(),
+          TerminalScreen(),
           HudScreen(),
           SettingsScreen(),
         ],
@@ -45,6 +49,16 @@ class HomeScreen extends ConsumerWidget {
             icon: Icon(Icons.chat_bubble_outline),
             selectedIcon: Icon(Icons.chat_bubble),
             label: 'Chat',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.space_dashboard_outlined),
+            selectedIcon: Icon(Icons.space_dashboard),
+            label: 'Board',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.account_tree_outlined),
+            selectedIcon: Icon(Icons.account_tree),
+            label: 'Agents',
           ),
           NavigationDestination(
             icon: Icon(Icons.terminal_outlined),

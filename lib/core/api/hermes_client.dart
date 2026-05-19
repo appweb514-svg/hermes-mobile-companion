@@ -139,6 +139,29 @@ class HermesClient {
     }
   }
 
+  /// Fetches all runs from the Hermes server via GET /v1/runs.
+  ///
+  /// Returns a list of raw run data maps. Returns an empty list on error.
+  /// Lance [HermesApiException] si le statut n'est pas 200.
+  Future<List<Map<String, dynamic>>> listRuns(ServerConfig config) async {
+    final client = _createClient();
+    try {
+      final request = await client.getUrl(Uri.parse(config.runsUrl));
+      _applyHeaders(request, config);
+      final response = await request.close();
+      final data = await _handleResponse(response);
+      if (data['data'] is List) {
+        return (data['data'] as List).cast<Map<String, dynamic>>();
+      }
+      if (data['runs'] is List) {
+        return (data['runs'] as List).cast<Map<String, dynamic>>();
+      }
+      return [];
+    } finally {
+      client.close();
+    }
+  }
+
   /// Crée le HttpClient avec timeout.
   HttpClient _createClient() {
     final client = HttpClient();
@@ -174,7 +197,7 @@ class HermesClient {
     _applyHeaders(postRequest, config);
 
     final body = <String, dynamic>{
-      'messages': [
+      'input': [
         {'role': 'user', 'content': message},
       ],
       'stream': true,
@@ -183,7 +206,7 @@ class HermesClient {
     postRequest.write(jsonEncode(body));
 
     final postResponse = await postRequest.close();
-    if (postResponse.statusCode != 200) {
+    if (postResponse.statusCode != 200 && postResponse.statusCode != 202) {
       final errorBody = await postResponse.transform(utf8.decoder).join();
       throw HermesApiException(postResponse.statusCode, errorBody);
     }

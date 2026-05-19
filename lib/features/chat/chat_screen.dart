@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/sessions/session_chat_bridge.dart';
+import '../../features/sessions/sessions_provider.dart';
+import '../../features/sessions/sessions_screen.dart';
 import 'chat_provider.dart';
 import 'widgets/chat_input.dart';
 import 'widgets/message_bubble.dart';
@@ -15,6 +18,7 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void dispose() {
@@ -38,10 +42,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final state = ref.watch(chatProvider);
+    final state = ref.watch(activeChatStateProvider);
+    final sessionsState = ref.watch(sessionsProvider);
+
+    // Determine the active session title.
+    final activeTitle = _activeSessionTitle(sessionsState);
 
     // Show error snackbar when an error is present.
-    ref.listen<ChatState>(chatProvider, (prev, next) {
+    ref.listen<ChatState>(activeChatStateProvider, (prev, next) {
       if (next.error != null && next.error != prev?.error) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -52,7 +60,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               label: 'OK',
               textColor: Colors.white,
               onPressed: () {
-                ref.read(chatProvider.notifier).clearChat();
+                ref.read(sessionsProvider.notifier).clearActiveSession();
               },
             ),
           ),
@@ -61,14 +69,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
 
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: const SessionsDrawer(),
       appBar: AppBar(
-        title: const Text('Hermes'),
+        leading: IconButton(
+          icon: const Icon(Icons.menu_rounded),
+          tooltip: 'Sessions',
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
+        title: Text(activeTitle),
         centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Nouvelle conversation',
-            onPressed: () => ref.read(chatProvider.notifier).clearChat(),
+            onPressed: () =>
+                ref.read(sessionsProvider.notifier).clearActiveSession(),
           ),
         ],
       ),
@@ -128,12 +144,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           ChatInput(
             onSubmitted: (text) {
-              ref.read(chatProvider.notifier).sendMessage(text);
+              ref.read(sessionsProvider.notifier).sendMessage(text);
               _scrollToBottom();
             },
           ),
         ],
       ),
     );
+  }
+
+  /// Returns the display title for the active session.
+  String _activeSessionTitle(SessionsState sessionsState) {
+    final activeId = sessionsState.activeSessionId;
+    if (activeId == null) return 'Hermes';
+    final sessionMeta = sessionsState.sessionList
+        .where((s) => s.id == activeId)
+        .firstOrNull;
+    return sessionMeta?.title ?? 'Hermes';
   }
 }
