@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../chat/chat_screen.dart';
+import '../browser/browser_screen.dart';
 import '../terminal/terminal_screen.dart';
 import '../kanban/kanban_screen.dart';
 import '../subagents/subagents_screen.dart';
@@ -32,6 +33,7 @@ class HomeScreen extends ConsumerWidget {
         index: currentIndex,
         children: const [
           ChatScreen(),
+          BrowserScreen(),
           KanbanScreen(),
           SubagentsScreen(),
           TerminalScreen(),
@@ -49,6 +51,11 @@ class HomeScreen extends ConsumerWidget {
             icon: Icon(Icons.chat_bubble_outline),
             selectedIcon: Icon(Icons.chat_bubble),
             label: 'Chat',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.travel_explore_outlined),
+            selectedIcon: Icon(Icons.travel_explore),
+            label: 'Browser',
           ),
           NavigationDestination(
             icon: Icon(Icons.space_dashboard_outlined),
