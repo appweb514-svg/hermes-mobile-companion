@@ -86,15 +86,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       appBar: state.isFullScreen
           ? null
           : AppBar(
+              toolbarHeight: 0,
               backgroundColor: const Color(0xFF1A1A1A),
-              title: const Text(
-                'Terminal',
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 16,
-                  color: Colors.white,
-                ),
-              ),
               actions: [
                 // Connection indicator
                 Padding(

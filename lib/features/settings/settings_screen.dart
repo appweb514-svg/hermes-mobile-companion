@@ -1,15 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'widgets/settings_section.dart';
+import '../voice/voice_settings_screen.dart';
+import '../vision/local_vision_screen.dart';
+import 'mcp_skills_section.dart';
+import 'updater_provider.dart';
+import 'package:hermes_mobile/services/model_download_service.dart';
+import 'package:hermes_mobile/services/lite_rt_service.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // Connexion
   final _serverUrlController = TextEditingController(text: 'https://');
   final _apiKeyController = TextEditingController();
@@ -20,6 +29,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Apparence
   int _themeModeIndex = 0; // 0: System, 1: Light, 2: Dark
   double _fontSize = 16;
+
+  // Edge AI
+  bool _localSttEnabled = false;
+  bool _localTtsEnabled = false;
+  bool _whisperInstalled = false;
+  bool _omnivoiceInstalled = false;
+  bool _liteRtAvailable = false;
 
   @override
   void initState() {
@@ -41,7 +57,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _apiKeyController.text = prefs.getString('api_key') ?? '';
       _themeModeIndex = prefs.getInt('theme_mode') ?? 0;
       _fontSize = prefs.getDouble('font_size') ?? 16;
+      _localSttEnabled = prefs.getBool('local_stt_enabled') ?? false;
+      _localTtsEnabled = prefs.getBool('local_tts_enabled') ?? false;
     });
+    // Async checks for model file existence
+    _whisperInstalled =
+        await ModelDownloadService.instance.modelExists('whisper-tiny');
+    _omnivoiceInstalled =
+        await ModelDownloadService.instance.modelExists('omnivoice-tiny');
+    _liteRtAvailable = await LiteRTRuntime.instance.isAvailable();
+    if (mounted) setState(() {}); // refresh UI
   }
 
   Future<void> _saveServerUrl() async {
@@ -62,6 +87,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveFontSize(double size) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble('font_size', size);
+  }
+
+  Future<void> _setLocalSttEnabled(bool v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('local_stt_enabled', v);
+    setState(() => _localSttEnabled = v);
+  }
+
+  Future<void> _setLocalTtsEnabled(bool v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('local_tts_enabled', v);
+    setState(() => _localTtsEnabled = v);
   }
 
   Future<void> _testConnection() async {
@@ -278,12 +315,148 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
 
+        // === Voice ===
+        SettingsSection(
+          title: '🎤 Voice',
+          icon: Icons.mic,
+          children: const [
+            SizedBox(
+              height: 400, // gives the embedded list room to scroll
+              child: VoiceSettingsScreen(),
+            ),
+          ],
+        ),
+
+        // === 🧠 Edge AI ===
+        SettingsSection(
+          title: '🧠 Edge AI',
+          icon: Icons.memory,
+          children: [
+            // Whisper status
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(
+                children: [
+                  Icon(Icons.mic, size: 18,
+                      color: Theme.of(context).colorScheme.secondary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Whisper Tiny (STT) :  ${_whisperInstalled ? "✅ Installé" : "❌ Non téléchargé"}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // OmniVoice status
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Row(
+                children: [
+                  Icon(Icons.volume_up, size: 18,
+                      color: Theme.of(context).colorScheme.secondary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'OmniVoice Tiny (TTS) :  ${_omnivoiceInstalled ? "✅ Installé" : "❌ Non téléchargé"}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // LiteRT status
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Row(
+                children: [
+                  Icon(Icons.memory, size: 18,
+                      color: Theme.of(context).colorScheme.secondary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'LiteRT Runtime : ${_liteRtAvailable ? "✅ Disponible" : "⏳ À venir"}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // Enable local STT toggle
+            SwitchListTile(
+              dense: true,
+              title: const Text('Enable local STT'),
+              subtitle: const Text('Utiliser Whisper en local si disponible'),
+              value: _localSttEnabled,
+              onChanged: (v) => _setLocalSttEnabled(v),
+              secondary: Icon(
+                Icons.transcribe,
+                size: 20,
+                color: _localSttEnabled
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+            ),
+            const Divider(height: 1),
+            // Enable local TTS toggle
+            SwitchListTile(
+              dense: true,
+              title: const Text('Enable local TTS'),
+              subtitle: const Text('Utiliser OmniVoice en local si disponible'),
+              value: _localTtsEnabled,
+              onChanged: (v) => _setLocalTtsEnabled(v),
+              secondary: Icon(
+                Icons.record_voice_over,
+                size: 20,
+                color: _localTtsEnabled
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+            ),
+            const Divider(height: 1),
+            // Local Vision button
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LocalVisionScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.image_search),
+                  label: const Text('Vision locale (MiniCPM-V)'),
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        // === MCP Skills ===
+        const McpSkillsSection(),
+
+        // === Mise à jour ===
+        SettingsSection(
+          title: 'Mise à jour',
+          icon: Icons.system_update,
+          children: [
+            _buildUpdateSection(),
+          ],
+        ),
+
         // === À propos ===
         SettingsSection(
           title: 'À propos',
           icon: Icons.info_outline,
           children: [
-            _buildInfoTile('Version', '1.0.0'),
+            _buildInfoTile('Version', ref.watch(updaterProvider).installedVersion),
             const Divider(height: 1),
             _buildInfoTile('GitHub', 'github.com/nousresearch/hermes-mobile'),
             const Divider(height: 1),
@@ -303,6 +476,154 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ],
     );
+  }
+
+  /// Section de mise à jour : check + download
+  Widget _buildUpdateSection() {
+    final updateState = ref.watch(updaterProvider);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Status line
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Row(
+            children: [
+              Icon(
+                updateState.updateAvailable
+                    ? Icons.system_update
+                    : updateState.isChecking
+                        ? Icons.sync
+                        : Icons.check_circle,
+                size: 18,
+                color: updateState.updateAvailable
+                    ? Colors.orange
+                    : colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  updateState.isChecking
+                      ? 'Vérification en cours…'
+                      : updateState.updateAvailable
+                          ? '⬆️ Mise à jour disponible (v${updateState.serverVersion})'
+                          : updateState.error != null
+                              ? '⚠️ ${updateState.error}'
+                              : '✅ À jour — v${updateState.installedVersion}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: updateState.error != null
+                        ? colorScheme.error
+                        : updateState.updateAvailable
+                            ? Colors.orange
+                            : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        if (updateState.updateAvailable) ...[
+          const Divider(height: 1),
+          // Version comparison
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(
+              'Installée : v${updateState.installedVersion}  →  '
+              'Serveur : v${updateState.serverVersion}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          // Download button
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  final url = updateState.downloadUrl;
+                  if (url != null) {
+                    final uri = Uri.tryParse(url);
+                    if (uri != null && await canLaunchUrl(uri)) {
+                      await launchUrl(uri,
+                          mode: LaunchMode.externalApplication);
+                    } else {
+                      // Fallback: copy to clipboard
+                      await Clipboard.setData(ClipboardData(text: url));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('📋 URL copiée : $url'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  }
+                },
+                icon: const Icon(Icons.download),
+                label: Text('Télécharger v${updateState.serverVersion}'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.black,
+                ),
+              ),
+            ),
+          ),
+        ] else ...[
+          const Divider(height: 1),
+          // Last check + refresh button
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Row(
+              children: [
+                if (updateState.lastCheck != null)
+                  Expanded(
+                    child: Text(
+                      'Dernière vérif : ${_formatDate(updateState.lastCheck!)}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                TextButton.icon(
+                  onPressed: updateState.isChecking
+                      ? null
+                      : () {
+                          ref.read(updaterProvider.notifier).checkForUpdate();
+                        },
+                  icon: updateState.isChecking
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh, size: 18),
+                  label: Text(
+                    updateState.isChecking ? '…' : 'Vérifier',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'à l\'instant';
+    if (diff.inHours < 1) return 'il y a ${diff.inMinutes} min';
+    if (diff.inDays < 1) return 'il y a ${diff.inHours}h';
+    return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _buildTextField({

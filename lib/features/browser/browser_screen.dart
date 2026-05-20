@@ -12,9 +12,16 @@ import 'browser_provider.dart';
 
 /// Returns the CSS selector generation function and click handler as a
 /// complete `<script>` block.
+///
+/// The click handler checks `window.__selectMode` before capturing:
+///   - `true`  → captures the click for element selection (prevents nav)
+///   - `false` → lets the click through as normal navigation
 String _elementSelectorScript() {
   return '''
 (function() {
+  // Default: select mode on
+  window.__selectMode = true;
+
   // ---- CSS selector generation ----
   function getCssSelector(el) {
     if (el.id) return '#' + CSS.escape(el.id);
@@ -23,7 +30,7 @@ String _elementSelectorScript() {
       var selector = el.nodeName.toLowerCase();
       if (el.id) { path.unshift('#' + CSS.escape(el.id)); break; }
       if (el.className && typeof el.className === 'string') {
-        selector += '.' + el.className.trim().split(/\\s+/).filter(Boolean).join('.');
+        selector += '.' + el.className.trim().split(/\\\\s+/).filter(Boolean).join('.');
       }
       var sibling = el;
       var nth = 1;
@@ -38,22 +45,30 @@ String _elementSelectorScript() {
   }
 
   // ---- Element highlight feedback ----
-  function highlightElement(selector) {
+  function highlightElement(selector, color) {
     var el = document.querySelector(selector);
     if (!el) return;
     var oldOutline = el.style.outline;
-    el.style.outline = '3px solid #00FF41';
-    setTimeout(function() { el.style.outline = oldOutline; }, 1500);
+    var oldOutlineColor = el.style.outlineColor;
+    el.style.outline = '3px solid ' + (color || '#00FF41');
+    setTimeout(function() {
+      el.style.outline = oldOutline;
+      el.style.outlineColor = oldOutlineColor;
+    }, 1500);
   }
 
   // ---- Click handler ----
   document.addEventListener('click', function(e) {
+    // If select mode is OFF, let the click go through normally
+    if (!window.__selectMode) return;
+
+    // Select mode is ON — capture for element selection
     e.preventDefault();
     e.stopPropagation();
     var selector = getCssSelector(e.target);
     var text = (e.target.textContent || '').trim().substring(0, 200);
     ElementSelector.postMessage(JSON.stringify({selector: selector, text: text}));
-    highlightElement(selector);
+    highlightElement(selector, '#2196F3');
   }, true);
 })();
 ''';
@@ -78,12 +93,11 @@ String _normalizeUrl(String raw) {
 
 /// Full-screen WebView with an element selector overlay.
 ///
-/// Allows the user to:
-///   1. Navigate to any URL.
-///   2. Tap on elements to generate a unique CSS selector.
-///   3. Optionally enter an instruction for the selected element.
-///   4. Send the selector + instruction to the active chat session as a
-///      @playwright command.
+/// Features:
+///   - Navigate to any URL with back/forward/reload
+///   - 🔍 Select Mode toggle: ON = select elements, OFF = normal navigation
+///   - Tap elements in select mode to generate CSS selector
+///   - Send selector + instruction to active chat session
 class BrowserScreen extends ConsumerStatefulWidget {
   const BrowserScreen({super.key});
 
@@ -157,7 +171,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
         onPageFinished: (url) {
           ref.read(browserProvider.notifier).setLoading(false);
           // Re-inject the element selector script on every page load.
-          controller.runJavaScript(_elementSelectorScript());
+          _injectSelectorScript(controller);
         },
         onProgress: (progress) {
           ref.read(browserProvider.notifier).setProgress(progress / 100.0);
@@ -171,16 +185,34 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
     // -- JavaScript mode: enabled --
     controller.setJavaScriptMode(JavaScriptMode.unrestricted);
 
+    // Enable zoom gestures
+    controller.enableZoom(true);
+
     // -- Load the initial URL --
     await controller.loadRequest(Uri.parse(url));
 
     // Inject the element selector script once the page is loaded.
-    // (onPageFinished also handles re-injection on navigation.)
-    controller.runJavaScript(_elementSelectorScript());
+    _injectSelectorScript(controller);
 
     setState(() {
       _webViewController = controller;
     });
+  }
+
+  /// Injects the selector script and syncs the current select mode state.
+  void _injectSelectorScript(WebViewController controller) {
+    final state = ref.read(browserProvider);
+    final selectMode = state.isSelectMode;
+    // Inject the element selector script, then set select mode.
+    controller.runJavaScript('''
+      ${_elementSelectorScript()}
+      window.__selectMode = $selectMode;
+    ''');
+  }
+
+  /// Syncs the select mode to the WebView without reloading.
+  void _syncSelectMode(bool selectMode) {
+    _webViewController?.runJavaScript('window.__selectMode = $selectMode;');
   }
 
   // -----------------------------------------------------------------------
@@ -236,14 +268,14 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
           // Selected selector label
           Row(
             children: [
-              const Icon(Icons.touch_app, size: 18, color: Color(0xFF00FF41)),
+              const Icon(Icons.touch_app, size: 18, color: Color(0xFF2196F3)),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   'Selected: $selector',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF00FF41),
+                    color: Color(0xFF2196F3),
                     fontFamily: 'monospace',
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -278,7 +310,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                       borderSide: BorderSide(color: Colors.grey),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Color(0xFF00FF41)),
+                      borderSide: BorderSide(color: Color(0xFF2196F3)),
                     ),
                   ),
                   textInputAction: TextInputAction.send,
@@ -299,8 +331,8 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                   icon: const Icon(Icons.send_rounded, size: 16),
                   label: const Text('Send'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00FF41),
-                    foregroundColor: Colors.black,
+                    backgroundColor: const Color(0xFF2196F3),
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -365,50 +397,81 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text(
-          'Browser',
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.white,
-          ),
-        ),
-        actions: [
-          // Refresh button
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.grey),
-            onPressed: _reload,
-          ),
-        ],
-      ),
       body: Column(
         children: [
-          // ---- URL bar ----
+          // ---- URL bar with select mode toggle ----
           Container(
             color: const Color(0xFF1A1A1A),
-            padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+            padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
             child: Row(
               children: [
+                // Select mode toggle
+                GestureDetector(
+                  onTap: () {
+                    final notifier = ref.read(browserProvider.notifier);
+                    notifier.toggleSelectMode();
+                    _syncSelectMode(!state.isSelectMode);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: state.isSelectMode
+                          ? const Color(0xFF2196F3)
+                          : const Color(0xFF333333),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          state.isSelectMode
+                              ? Icons.touch_app
+                              : Icons.touch_app_outlined,
+                          size: 16,
+                          color: state.isSelectMode
+                              ? Colors.white
+                              : Colors.grey,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Select',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: state.isSelectMode
+                                ? Colors.white
+                                : Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
                 // Back button
                 IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.grey),
                   onPressed: _goBack,
                   constraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
+                    minWidth: 32,
+                    minHeight: 32,
                   ),
                   padding: EdgeInsets.zero,
+                  iconSize: 20,
                 ),
                 // Forward button
                 IconButton(
                   icon: const Icon(Icons.arrow_forward, color: Colors.grey),
                   onPressed: _goForward,
                   constraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
+                    minWidth: 32,
+                    minHeight: 32,
                   ),
                   padding: EdgeInsets.zero,
+                  iconSize: 20,
                 ),
                 // URL text field
                 Expanded(
@@ -416,7 +479,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                     controller: _urlController,
                     focusNode: _urlFocusNode,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       color: Colors.white,
                       fontFamily: 'monospace',
                     ),
@@ -424,10 +487,11 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 8,
-                        vertical: 6,
+                        vertical: 4,
                       ),
-                      hintText: 'Enter URL...',
-                      hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                      hintText: 'URL...',
+                      hintStyle:
+                          TextStyle(color: Colors.grey, fontSize: 12),
                       border: OutlineInputBorder(
                         borderSide: BorderSide(color: Colors.grey),
                       ),
@@ -435,28 +499,41 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
                         borderSide: BorderSide(color: Colors.grey),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Color(0xFF00FF41)),
+                        borderSide: BorderSide(color: Color(0xFF2196F3)),
                       ),
                     ),
                     textInputAction: TextInputAction.go,
                     onSubmitted: (_) => _navigateToUrl(),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 4),
+                // Refresh button
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.grey),
+                  onPressed: _reload,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                  padding: EdgeInsets.zero,
+                  iconSize: 20,
+                ),
                 // Go button
                 SizedBox(
-                  height: 36,
+                  height: 32,
                   child: ElevatedButton(
                     onPressed: _navigateToUrl,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00FF41),
-                      foregroundColor: Colors.black,
+                      backgroundColor: const Color(0xFF2196F3),
+                      foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10),
                     ),
-                    child: const Text('Go', style: TextStyle(fontSize: 13)),
+                    child: const Text('Go',
+                        style: TextStyle(fontSize: 12)),
                   ),
                 ),
               ],
@@ -469,7 +546,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
               value: state.progress,
               backgroundColor: const Color(0xFF333333),
               valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFF00FF41),
+                Color(0xFF2196F3),
               ),
               minHeight: 2,
             ),
@@ -502,8 +579,7 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
           const SizedBox(height: 16),
           const Text(
             'Enter a URL and tap Go to start browsing.\n'
-            'Tap any element on the page to generate\n'
-            'a CSS selector and send it to the chat.',
+            'Toggle 🔍 Select mode to pick elements.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -520,8 +596,8 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
             icon: const Icon(Icons.travel_explore),
             label: Text('Load ${state.url}'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00FF41),
-              foregroundColor: Colors.black,
+              backgroundColor: const Color(0xFF2196F3),
+              foregroundColor: Colors.white,
             ),
           ),
         ],

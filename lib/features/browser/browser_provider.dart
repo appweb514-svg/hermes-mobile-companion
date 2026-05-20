@@ -22,8 +22,17 @@ class BrowserState {
   /// Text content of the last tapped element.
   final String? selectedText;
 
+  /// X position of the last tap (pageX from JS).
+  final double tapX;
+
+  /// Y position of the last tap (pageY from JS).
+  final double tapY;
+
   /// Optional user instruction for what to do with the selected element.
   final String? pendingInstruction;
+
+  /// Whether element select mode is active (ON = select, OFF = navigate).
+  final bool isSelectMode;
 
   const BrowserState({
     this.url = 'http://87.229.95.45:9119',
@@ -31,7 +40,10 @@ class BrowserState {
     this.progress = 0.0,
     this.selectedSelector,
     this.selectedText,
+    this.tapX = 0,
+    this.tapY = 0,
     this.pendingInstruction,
+    this.isSelectMode = true,
   });
 
   BrowserState copyWith({
@@ -42,8 +54,11 @@ class BrowserState {
     bool clearSelectedSelector = false,
     String? selectedText,
     bool clearSelectedText = false,
+    double? tapX,
+    double? tapY,
     String? pendingInstruction,
     bool clearPendingInstruction = false,
+    bool? isSelectMode,
   }) {
     return BrowserState(
       url: url ?? this.url,
@@ -54,16 +69,20 @@ class BrowserState {
           : (selectedSelector ?? this.selectedSelector),
       selectedText:
           clearSelectedText ? null : (selectedText ?? this.selectedText),
+      tapX: tapX ?? this.tapX,
+      tapY: tapY ?? this.tapY,
       pendingInstruction: clearPendingInstruction
           ? null
           : (pendingInstruction ?? this.pendingInstruction),
+      isSelectMode: isSelectMode ?? this.isSelectMode,
     );
   }
 
   @override
   String toString() =>
       'BrowserState(url: $url, isLoading: $isLoading, progress: $progress, '
-      'selected: $selectedSelector, text: $selectedText, instruction: $pendingInstruction)';
+      'selected: $selectedSelector, text: $selectedText, '
+      'instruction: $pendingInstruction, selectMode: $isSelectMode)';
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +111,33 @@ class BrowserNotifier extends StateNotifier<BrowserState> {
     state = state.copyWith(progress: progress.clamp(0.0, 1.0));
   }
 
+  /// Toggles element select mode on/off.
+  void toggleSelectMode() {
+    final newMode = !state.isSelectMode;
+    // When turning select mode ON, clear any previous selection
+    // so user must tap a new element to get a bubble.
+    if (newMode) {
+      state = state.copyWith(
+        isSelectMode: true,
+        clearSelectedSelector: true,
+        clearSelectedText: true,
+        clearPendingInstruction: true,
+      );
+    } else {
+      state = state.copyWith(
+        isSelectMode: false,
+        clearSelectedSelector: true,
+        clearSelectedText: true,
+        clearPendingInstruction: true,
+      );
+    }
+  }
+
+  /// Sets select mode explicitly.
+  void setSelectMode(bool value) {
+    state = state.copyWith(isSelectMode: value);
+  }
+
   /// Clears the current element selection and pending instruction.
   void clearSelection() {
     state = state.copyWith(
@@ -103,11 +149,15 @@ class BrowserNotifier extends StateNotifier<BrowserState> {
 
   /// Called from the JavaScript channel when the user taps an element.
   ///
-  /// Stores both the CSS [selector] and the element's [text] content.
-  void selectElement(String selector, String text) {
+  /// Stores both the CSS [selector], the element's [text] content,
+  /// and the tap position ([tapX], [tapY]).
+  void selectElement(String selector, String text,
+      {double tapX = 0, double tapY = 0}) {
     state = state.copyWith(
       selectedSelector: selector,
       selectedText: text,
+      tapX: tapX,
+      tapY: tapY,
     );
   }
 
@@ -133,6 +183,16 @@ class BrowserNotifier extends StateNotifier<BrowserState> {
 
     ref.read(sessionsProvider.notifier).sendMessage(text);
     clearSelection();
+  }
+
+  /// Returns the @playwright command without sending it.
+  String buildPlaywrightCommand() {
+    final selector = state.selectedSelector;
+    if (selector == null || selector.isEmpty) return '';
+    final instruction = state.pendingInstruction?.trim() ?? '';
+    return instruction.isNotEmpty
+        ? '@playwright $instruction on "$selector"'
+        : '@playwright click "$selector"';
   }
 }
 

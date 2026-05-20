@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../chat_provider.dart';
+import '../../voice/widgets/tts_player.dart';
 
 /// A single chat bubble displaying either a user or assistant message.
 class MessageBubble extends StatelessWidget {
@@ -43,6 +44,12 @@ class MessageBubble extends StatelessWidget {
               child: _buildContent(textColor!),
             ),
           ),
+          // TTS player for assistant messages (when not streaming)
+          if (!isUser && !message.isStreaming && message.content.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 4),
+              child: TtsPlayer(text: message.content),
+            ),
           const SizedBox(height: 2),
           Text(
             _formatTimestamp(message.timestamp),

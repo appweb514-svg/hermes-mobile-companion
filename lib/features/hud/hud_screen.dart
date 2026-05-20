@@ -53,10 +53,7 @@ class _HudScreenState extends ConsumerState<HudScreen> {
     final brightness = theme.brightness;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tableau de bord'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(toolbarHeight: 0),
       body: state.isLoading && state.capabilities == null
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(

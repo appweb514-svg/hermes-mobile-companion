@@ -347,7 +347,7 @@ class _KanbanScreenState extends ConsumerState<KanbanScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kanban Board'),
+        toolbarHeight: 0,
         actions: [
           if (state.isLoading)
             const Padding(

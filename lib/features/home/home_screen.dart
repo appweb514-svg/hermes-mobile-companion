@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../chat/chat_screen.dart';
-import '../browser/browser_screen.dart';
-import '../preview/preview_screen.dart';
+import '../studio/studio_screen.dart';
 import '../terminal/terminal_screen.dart';
 import '../kanban/kanban_screen.dart';
 import '../subagents/subagents_screen.dart';
@@ -21,26 +20,37 @@ class HomeScreen extends ConsumerWidget {
     final currentIndex = ref.watch(currentTabProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Hermes Agent'),
-        actions: const [
+      body: Column(
+        children: [
+          // ---- Top safe area + server status ----
+          SizedBox(height: MediaQuery.of(context).padding.top + 2),
           Padding(
-            padding: EdgeInsets.only(right: 12),
-            child: ServerStatusBadge(),
+            padding: const EdgeInsets.only(right: 12, bottom: 2),
+            child: Align(
+              alignment: Alignment.topRight,
+              child: SizedBox(
+                height: 26,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: ServerStatusBadge(),
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
-      body: IndexedStack(
-        index: currentIndex,
-        children: const [
-          ChatScreen(),
-          PreviewScreen(),
-          BrowserScreen(),
-          KanbanScreen(),
-          SubagentsScreen(),
-          TerminalScreen(),
-          HudScreen(),
-          SettingsScreen(),
+          Expanded(
+            child: IndexedStack(
+              index: currentIndex,
+              children: const [
+                ChatScreen(),
+                StudioScreen(),
+                KanbanScreen(),
+                SubagentsScreen(),
+                TerminalScreen(),
+                HudScreen(),
+                SettingsScreen(),
+              ],
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -55,14 +65,9 @@ class HomeScreen extends ConsumerWidget {
             label: 'Chat',
           ),
           NavigationDestination(
-            icon: Icon(Icons.phone_iphone_outlined),
-            selectedIcon: Icon(Icons.phone_iphone),
-            label: 'Preview',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.travel_explore_outlined),
-            selectedIcon: Icon(Icons.travel_explore),
-            label: 'Browser',
+            icon: Icon(Icons.auto_awesome_mosaic_outlined),
+            selectedIcon: Icon(Icons.auto_awesome_mosaic),
+            label: 'Studio',
           ),
           NavigationDestination(
             icon: Icon(Icons.space_dashboard_outlined),

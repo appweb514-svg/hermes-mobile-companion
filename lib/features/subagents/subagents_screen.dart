@@ -127,10 +127,7 @@ class _SubagentsScreenState extends ConsumerState<SubagentsScreen> {
     final total = state.totalCount;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sub-Agents'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(toolbarHeight: 0),
       body: Column(
         children: [
           // ── Status summary bar ──

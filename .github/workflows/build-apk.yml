@@ -1,58 +1,101 @@
-name: Build Android APK
+name: Build & Release APK
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
     paths-ignore:
-      - '**.md'
-      - '.github/**'
+      - "**.md"
+      - ".github/**"
   workflow_dispatch:
     inputs:
-      build_type:
-        description: 'Build type'
-        required: true
-        default: 'debug'
-        type: choice
-        options:
-          - debug
-          - release
+      version_bump:
+        description: "Bump version (patch/minor/major/none)"
+        required: false
+        default: "patch"
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  JAVA_VERSION: "21"
 
 jobs:
   build:
+    name: Build release APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-tags: true
 
-      - name: Setup Java
+      - name: Setup Java ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          java-version: "${{ env.JAVA_VERSION }}"
+          distribution: "temurin"
 
-      - name: Setup Flutter
+      - name: Setup Flutter ${{ env.FLUTTER_VERSION }}
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
-          flutter-version: '3.44.0'
-          cache: true
+          flutter-version: "${{ env.FLUTTER_VERSION }}"
 
-      - name: Flutter pub get
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK
-        run: |
-          if [ "${{ github.event.inputs.build_type || 'debug' }}" = "release" ]; then
-            flutter build apk --release
-          else
-            flutter build apk --debug
-          fi
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Upload APK
+      - name: Build APK (release — split per ABI)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: hermes-mobile-${{ github.event.inputs.build_type || 'debug' }}-${{ github.sha }}
+          name: release-apks-${{ github.sha }}
           path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          BUILD=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f2)
+          TAG="v${VERSION}+${BUILD}"
+          gh release create "$TAG" \
+            --title "Hermes Mobile v${VERSION} (build ${BUILD})" \
+            --notes "Release automatisée — build ${BUILD}" \
+            build/app/outputs/flutter-apk/*.apk
+
+  deploy-vps:
+    name: Deploy APK to VPS
+    if: github.ref == 'refs/heads/main' && secrets.VPS_SSH_KEY != ''
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download built APK
+        uses: actions/download-artifact@v4
+        with:
+          name: release-apks-${{ github.sha }}
+          path: ./apks
+
+      - name: Deploy via SCP
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST || '87.229.95.45' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          # Update APK on VPS
+          scp ./apks/app-arm64-v8a-release.apk root@$VPS_HOST:/srv/hermes-status/static/hermes.apk
+          # Update version file
+          ssh root@$VPS_HOST "echo '{\"version\":\"${VERSION}\",\"updated\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}' > /srv/hermes-status/apk-version.json"
+          # Restart status server to pick up changes
+          ssh root@$VPS_HOST "systemctl restart hermes-status"

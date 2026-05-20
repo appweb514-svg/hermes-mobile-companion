@@ -59,6 +59,21 @@ dependencies:
   # WebView for browser feature
   webview_flutter: ^4.10.0
 
+  # Voice input & TTS
+  record: ^6.2.0
+  audioplayers: ^6.1.0
+  path_provider: ^2.1.0
+
+  # Media picking
+  image_picker: ^1.1.2
+  file_picker: ^9.2.3
+
+  # App version info
+  package_info_plus: ^8.1.0
+
+  # Open URLs (APK download)
+  url_launcher: ^6.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
