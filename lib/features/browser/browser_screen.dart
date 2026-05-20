@@ -17,59 +17,79 @@ import 'browser_provider.dart';
 ///   - `true`  → captures the click for element selection (prevents nav)
 ///   - `false` → lets the click through as normal navigation
 String _elementSelectorScript() {
-  return '''
-(function() {
-  // Default: select mode on
-  window.__selectMode = true;
+  // Raw multi-line string to avoid backslash escaping issues
+  return r'''
+(function(){
+  if(window.__hsLoadedEls)return;
+  window.__hsLoadedEls=true;
+  window.__selectMode=true;
+  window.__selectedEl=null;
+  window.__overlay=null;
+  var C='#2196F3';
 
-  // ---- CSS selector generation ----
-  function getCssSelector(el) {
-    if (el.id) return '#' + CSS.escape(el.id);
-    var path = [];
-    while (el && el.nodeType === Node.ELEMENT_NODE) {
-      var selector = el.nodeName.toLowerCase();
-      if (el.id) { path.unshift('#' + CSS.escape(el.id)); break; }
-      if (el.className && typeof el.className === 'string') {
-        selector += '.' + el.className.trim().split(/\\\\s+/).filter(Boolean).join('.');
+  function rmOverlay(){
+    if(window.__overlay){window.__overlay.remove();window.__overlay=null;}
+    window.__selectedEl=null;
+  }
+
+  function showOverlay(el){
+    rmOverlay();
+    if(!el)return;
+    window.__selectedEl=el;
+    var r=el.getBoundingClientRect();
+    var o=document.createElement('div');
+    o.id='__hs_ov';
+    o.style.cssText='position:fixed;z-index:2147483647;pointer-events:none;border:3px solid '+C+';background:rgba(33,150,243,0.2);border-radius:3px;transition:all 0.1s;left:'+r.left+'px;top:'+r.top+'px;width:'+r.width+'px;height:'+r.height+'px;';
+    document.body.appendChild(o);
+    window.__overlay=o;
+  }
+
+  function refreshOv(){
+    if(window.__selectedEl&&document.body.contains(window.__selectedEl)){
+      var r=window.__selectedEl.getBoundingClientRect();
+      var o=window.__overlay;
+      if(o){o.style.left=r.left+'px';o.style.top=r.top+'px';o.style.width=r.width+'px';o.style.height=r.height+'px';}
+    } else rmOverlay();
+  }
+
+  function getSel(el){
+    if(!el||el===document||el===document.body||el===document.documentElement)return 'body';
+    if(el.id)return '#'+CSS.escape(el.id);
+    var p=[];
+    while(el&&el.nodeType===1){
+      var t=el.nodeName.toLowerCase();
+      if(el.id){p.unshift('#'+CSS.escape(el.id));break;}
+      if(el.className&&typeof el.className==='string'){
+        var cls=el.className.trim().split(/\s+/).filter(Boolean);
+        if(cls.length)t+='.'+cls.map(function(c){return CSS.escape(c);}).join('.');
       }
-      var sibling = el;
-      var nth = 1;
-      while ((sibling = sibling.previousElementSibling)) {
-        if (sibling.nodeName === el.nodeName) nth++;
-      }
-      if (nth > 1) selector += ':nth-of-type(' + nth + ')';
-      path.unshift(selector);
-      el = el.parentElement;
+      var s=el,n=1;
+      while((s=s.previousElementSibling)){if(s.nodeName===el.nodeName)n++;}
+      if(n>1)t+=':nth-of-type('+n+')';
+      p.unshift(t);
+      el=el.parentElement;
     }
-    return path.join(' > ');
+    return p.join(' > ');
   }
 
-  // ---- Element highlight feedback ----
-  function highlightElement(selector, color) {
-    var el = document.querySelector(selector);
-    if (!el) return;
-    var oldOutline = el.style.outline;
-    var oldOutlineColor = el.style.outlineColor;
-    el.style.outline = '3px solid ' + (color || '#00FF41');
-    setTimeout(function() {
-      el.style.outline = oldOutline;
-      el.style.outlineColor = oldOutlineColor;
-    }, 1500);
-  }
-
-  // ---- Click handler ----
-  document.addEventListener('click', function(e) {
-    // If select mode is OFF, let the click go through normally
-    if (!window.__selectMode) return;
-
-    // Select mode is ON — capture for element selection
+  document.addEventListener('click',function(e){
+    if(!window.__selectMode)return;
     e.preventDefault();
     e.stopPropagation();
-    var selector = getCssSelector(e.target);
-    var text = (e.target.textContent || '').trim().substring(0, 200);
-    ElementSelector.postMessage(JSON.stringify({selector: selector, text: text}));
-    highlightElement(selector, '#2196F3');
-  }, true);
+    var el=document.elementFromPoint(e.clientX,e.clientY)||e.target;
+    if(!el)return;
+    var sel=getSel(el);
+    var txt=(el.textContent||'').trim().substring(0,200);
+    showOverlay(el);
+    ElementSelector.postMessage(JSON.stringify({selector:sel,text:txt,x:e.pageX,y:e.pageY}));
+  },true);
+
+  window.addEventListener('scroll',refreshOv,true);
+  window.addEventListener('resize',refreshOv);
+
+  new MutationObserver(function(){
+    if(window.__selectedEl&&!document.body.contains(window.__selectedEl))rmOverlay();
+  }).observe(document.body,{childList:true,subtree:true});
 })();
 ''';
 }
@@ -150,8 +170,15 @@ class _BrowserScreenState extends ConsumerState<BrowserScreen> {
           final data = jsonDecode(message.message) as Map<String, dynamic>;
           final selector = data['selector'] as String? ?? '';
           final text = data['text'] as String? ?? '';
+          final x = (data['x'] as num?)?.toDouble() ?? 0;
+          final y = (data['y'] as num?)?.toDouble() ?? 0;
           if (selector.isNotEmpty) {
-            ref.read(browserProvider.notifier).selectElement(selector, text);
+            ref.read(browserProvider.notifier).selectElement(
+              selector,
+              text,
+              tapX: x,
+              tapY: y,
+            );
             _instructionController.clear();
           }
         } catch (_) {
